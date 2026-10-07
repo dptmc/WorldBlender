@@ -106,8 +106,10 @@ public class WBBiomeProvider extends BiomeSource {
             }
         }
         else {
-            RandomSource random = RandomSource.create(this.seed + x * 341873128712L + z * 132897987541L);
-            return (random.nextInt(100) / 800D + perlinNoise % 0.4D) > -0.2D
+            // deterministic per-column pseudo random without allocating a RandomSource
+            long hash = this.seed ^ (x * 341873128712L) ^ (z * 132897987541L);
+            double random = ((hash >>> 24) & 0xFF) / 255D;
+            return (random * 0.125D + perlinNoise % 0.4D) > -0.2D
                     ? holder(this.oceanBiome)
                     : holder(this.frozenOceanBiome);
         }

@@ -20,19 +20,25 @@ import net.minecraft.server.level.WorldGenRegion;
 public class WBSurfaceSystem {
     public static final WBSurfaceSystem INSTANCE = new WBSurfaceSystem();
 
-    private static SurfaceBlender blender;
-    private PerlinSimplexNoise perlinGen;
-    private long perlinSeed = Long.MIN_VALUE;
+    private static volatile SurfaceBlender blender;
+    private static final ThreadLocal<PerlinNoiseCache> PERLIN = ThreadLocal.withInitial(PerlinNoiseCache::new);
+
+    private static final class PerlinNoiseCache {
+        PerlinSimplexNoise noise;
+        long seed = Long.MIN_VALUE;
+    }
 
     public static void save(SurfaceBlender surfaceBlender) {
         blender = surfaceBlender;
     }
 
-    private void setPerlinSeed(long seed) {
-        if (perlinGen == null || perlinSeed != seed) {
-            perlinGen = new PerlinSimplexNoise(RandomSource.create(seed), ImmutableList.of(-1, 0));
-            perlinSeed = seed;
+    private static PerlinSimplexNoise perlinFor(long seed) {
+        PerlinNoiseCache cache = PERLIN.get();
+        if (cache.noise == null || cache.seed != seed) {
+            cache.noise = new PerlinSimplexNoise(RandomSource.create(seed), ImmutableList.of(-1, 0));
+            cache.seed = seed;
         }
+        return cache.noise;
     }
 
     public void buildSurface(WorldGenRegion region, ChunkAccess chunk, BlockState defaultBlock) {
@@ -41,7 +47,7 @@ public class WBSurfaceSystem {
             return;
         }
 
-        setPerlinSeed(region.getSeed());
+        final PerlinSimplexNoise perlinGen = perlinFor(region.getSeed());
 
         final int minY = chunk.getMinBuildHeight();
         final int seaLevel = region.getSeaLevel();
@@ -53,7 +59,7 @@ public class WBSurfaceSystem {
             for (int z = 0; z < 16; z++) {
                 int worldX = chunkOriginX + x;
                 int worldZ = chunkOriginZ + z;
-                SurfaceBlender.SurfaceMaterial chosen = weightedRandomSurface(worldX, worldZ);
+                SurfaceBlender.SurfaceMaterial chosen = weightedRandomSurface(perlinGen, worldX, worldZ);
                 RandomSource random = RandomSource.create(region.getSeed() + (long) worldX * 341873128712L + (long) worldZ * 132897987541L);
 
                 int startHeight = Math.min(chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z), chunk.getMaxBuildHeight() - 1);
@@ -133,7 +139,7 @@ public class WBSurfaceSystem {
         return block == defaultBlock.getBlock() || block == Blocks.DEEPSLATE || block == Blocks.STONE;
     }
 
-    private SurfaceBlender.SurfaceMaterial weightedRandomSurface(int x, int z) {
+    private SurfaceBlender.SurfaceMaterial weightedRandomSurface(PerlinSimplexNoise perlinGen, int x, int z) {
         int chosenIndex = 2; // grass surface
         double noiseScale = WBDimensionConfigs.surfaceScale.get();
         var materials = blender.materials();

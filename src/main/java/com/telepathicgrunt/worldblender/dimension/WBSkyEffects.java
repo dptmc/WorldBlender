@@ -6,7 +6,8 @@ import net.minecraft.world.phys.Vec3;
 // CLIENT-SIDED
 public class WBSkyEffects extends DimensionSpecialEffects {
     public WBSkyEffects() {
-        super(Float.NaN, true, SkyType.NORMAL, false, false);
+        // cloud level, has ground, sky type, force bright lightmap, constant ambient light
+        super(192.0F, true, SkyType.NORMAL, false, false);
     }
 
     @Override

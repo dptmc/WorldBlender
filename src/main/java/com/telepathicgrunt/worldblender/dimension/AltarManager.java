@@ -41,6 +41,9 @@ public class AltarManager
 			.setIgnoreEntities(false);
 
 	private boolean altarMade;
+	/** If generating the altar fails, don't hammer it every tick. */
+	private int failedAttempts;
+	private int retryCooldown;
 
 	public static void onLevelTick(Level level) {
 		if (level instanceof ServerLevel serverLevel && serverLevel.dimension().equals(WBIdentifiers.WB_WORLD_KEY)) {
@@ -63,11 +66,26 @@ public class AltarManager
 	public void tick(ServerLevel level)
 	{
 		if (this.altarMade) return;
+
+		if (this.retryCooldown > 0) {
+			--this.retryCooldown;
+			return;
+		}
+
 		if (!isWorldOriginTicking(level)) return;
 
 		if (generate(level)) {
 			this.altarMade = true;
 			WBWorldSavedData.get(level).setWBAltarState(true);
+		}
+		else if (++this.failedAttempts >= 3) {
+			// Give up until the next world load instead of pasting the altar every tick forever.
+			WorldBlender.LOGGER.warn("Gave up generating the World Blender portal altar after {} attempts.", this.failedAttempts);
+			this.altarMade = true;
+		}
+		else {
+			// Wait a bit before retrying to avoid doing full structure placement every tick.
+			this.retryCooldown = 100;
 		}
 	}
 
