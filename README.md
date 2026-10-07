@@ -101,11 +101,11 @@ The dimension and its biomes can also be overridden by **datapacks** — see
 
 &nbsp;
 
-Replace `4.0.0` with the latest published version.
+Replace the version with the latest published one, e.g. `1.20.1-5.0.0`.
 
 <blockquote>dependencies {
 
-&nbsp; implementation fg.deobf("com.telepathicgrunt:WorldBlender:1.16.5-4.0.0-forge")
+&nbsp; implementation fg.deobf("com.telepathicgrunt:WorldBlender:1.20.1-5.0.0")
 
 }</blockquote>
 
