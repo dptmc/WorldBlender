@@ -2,7 +2,7 @@
   "type": "world_blender:world_blender",
   "generator": {
     "type": "minecraft:noise",
-    "settings": "minecraft:overworld",
+    "settings": "world_blender:world_blender",
     "biome_source": {
       "type": "world_blender:biome_source",
       "seed": 0,

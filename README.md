@@ -82,6 +82,9 @@ Highlights:
 
 **Config changes require a full Minecraft restart** because of how the blending is done at load.
 
+**Performance:** if the dimension is too heavy in your pack, see **[PERFORMANCE.md](PERFORMANCE.md)**
+for what to blacklist and which options to tune.
+
 The dimension and its biomes can also be overridden by **datapacks** — see
 `src/main/resources/data/world_blender`.
 

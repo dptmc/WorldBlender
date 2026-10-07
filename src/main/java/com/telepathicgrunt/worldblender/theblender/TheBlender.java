@@ -63,6 +63,7 @@ public class TheBlender {
 
 		BlenderData.clear();
 		ConfigBlacklisting.setupBlackLists();
+		BlenderData.STRUCTURE_REGISTRY = registryAccess.registryOrThrow(Registries.STRUCTURE);
 
 		Blender blender = new Blender(biomes, placedFeatures, entityTypes, configuredCarvers);
 		blender.collect();

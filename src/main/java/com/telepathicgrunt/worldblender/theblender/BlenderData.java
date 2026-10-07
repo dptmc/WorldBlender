@@ -2,6 +2,8 @@ package com.telepathicgrunt.worldblender.theblender;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
+import net.minecraft.core.Registry;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.random.WeightedRandomList;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
@@ -12,6 +14,9 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.carver.ConfiguredWorldCarver;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
+import net.minecraft.world.level.levelgen.structure.Structure;
+
+import com.telepathicgrunt.worldblender.configs.WBBlendingConfigs;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -44,8 +49,37 @@ public final class BlenderData {
     public static final ThreadLocal<Boolean> CARVING_WB = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private static final Map<HolderSet<Biome>, HolderSet<Biome>> EXTENDED_BIOMES = new IdentityHashMap<>();
+    private static final Map<Structure, Boolean> STRUCTURE_ALLOWED = new IdentityHashMap<>();
+
+    /** The structure registry captured while blending, used to resolve structure ids at runtime. */
+    public static volatile Registry<Structure> STRUCTURE_REGISTRY;
 
     private BlenderData() {}
+
+    /**
+     * Whether a structure is allowed to spawn in World Blender's dimension, honouring the vanilla/modded
+     * allow flags and the structure blacklist. Values are memoised because {@link Structure#biomes()} is
+     * called very often during worldgen.
+     */
+    public static synchronized boolean isStructureAllowed(Structure structure) {
+        return STRUCTURE_ALLOWED.computeIfAbsent(structure, s -> {
+            Registry<Structure> registry = STRUCTURE_REGISTRY;
+            ResourceLocation id = registry == null ? null : registry.getKey(s);
+            if (id == null) {
+                return Boolean.TRUE; // unknown structure, don't block it
+            }
+
+            boolean isVanilla = id.getNamespace().equals("minecraft");
+            boolean allowed = isVanilla
+                    ? WBBlendingConfigs.allowVanillaStructures.get()
+                    : WBBlendingConfigs.allowModdedStructures.get();
+            if (!allowed) {
+                return Boolean.FALSE;
+            }
+
+            return !ConfigBlacklisting.isResourceLocationBlacklisted(ConfigBlacklisting.BlacklistType.STRUCTURE, id);
+        });
+    }
 
     /**
      * Returns an extended biome holder set that also contains every World Blender biome. This makes vanilla
@@ -76,6 +110,8 @@ public final class BlenderData {
         MOBS.clear();
         SPAWN_COSTS.clear();
         EXTENDED_BIOMES.clear();
+        STRUCTURE_ALLOWED.clear();
+        STRUCTURE_REGISTRY = null;
         WB_BIOMES = List.of();
         EXTRA_CARVABLE_BLOCKS = Set.of();
     }

@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext;
@@ -103,12 +104,25 @@ public class AntiFloatingBlocksAndSeparateLiquids extends Feature<NoneFeatureCon
 		final int chunkOriginX = cachedChunk.getPos().getMinBlockX();
 		final int chunkOriginZ = cachedChunk.getPos().getMinBlockZ();
 		final int minY = level.getMinBuildHeight();
+		final int maxY = level.getMaxBuildHeight();
 		final int seaLevel = level.getSeaLevel();
 		BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
 
+		// Pre-compute which sections can contain anything this pass cares about. Sections that are
+		// pure stone (no replaceable blocks, no fluids) are skipped entirely. maybeHas only walks the
+		// section's palette, so this is very cheap.
+		LevelChunkSection[] sections = cachedChunk.getSections();
+		final boolean[] sectionWorthScanning = new boolean[sections.length];
+		for (int i = 0; i < sections.length; i++) {
+			LevelChunkSection section = sections[i];
+			sectionWorthScanning[i] = section != null && !section.hasOnlyAir()
+					&& section.maybeHas(state -> isReplaceable(state)
+							|| !state.getFluidState().isEmpty()
+							|| state.getBlock() instanceof FallingBlock);
+		}
+
 		for(int x = 0; x < 16; x++) {
 			for(int z = 0; z < 16; z++) {
-				boolean setblock = false;
 				int worldX = chunkOriginX + x;
 				int worldZ = chunkOriginZ + z;
 
@@ -118,12 +132,22 @@ public class AntiFloatingBlocksAndSeparateLiquids extends Feature<NoneFeatureCon
 				maxHeight = Math.max(level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX - 1, worldZ), maxHeight);
 				maxHeight = Math.max(level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX, worldZ - 1), maxHeight);
 
-				mutable.set(worldX, Math.min(maxHeight, level.getMaxBuildHeight() - 1), worldZ);
 				BlockState lastBlockstate = Blocks.STONE.defaultBlockState();
+				int topY = Math.min(maxHeight, maxY - 1);
 
 				//checks the column downward
-				for(; mutable.getY() >= minY; mutable.move(Direction.DOWN)) {
+				for(int y = topY; y >= minY; ) {
+					int sectionIndex = (y - minY) >> 4;
+					if (sectionIndex < sectionWorthScanning.length && !sectionWorthScanning[sectionIndex]) {
+						// Nothing replaceable or fluid in this section; skip the rest of it in one go.
+						y = minY + (sectionIndex << 4) - 1;
+						lastBlockstate = Blocks.STONE.defaultBlockState();
+						continue;
+					}
+
+					mutable.set(worldX, y, worldZ);
 					BlockState currentBlockstate = getStateAt(level, cachedChunk, mutable);
+					boolean setblock = false;
 
 					// current block is a lava-tagged fluid
 					if (WBDimensionConfigs.preventLavaTouchingWater.get() &&
@@ -155,6 +179,7 @@ public class AntiFloatingBlocksAndSeparateLiquids extends Feature<NoneFeatureCon
 					}
 
 					lastBlockstate = currentBlockstate;
+					y--;
 				}
 			}
 		}
