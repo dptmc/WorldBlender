@@ -9,8 +9,7 @@ import com.telepathicgrunt.worldblender.dimension.AltarManager;
 import com.telepathicgrunt.worldblender.dimension.WBBiomeProvider;
 import com.telepathicgrunt.worldblender.entities.WBEntities;
 import com.telepathicgrunt.worldblender.features.WBFeatures;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -21,6 +20,7 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.registries.RegisterEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,13 +38,11 @@ public class WorldBlender {
 
 		IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
 		modEventBus.addListener(this::setup);
+		modEventBus.addListener(this::registerBuiltInRegistries);
 		WBBlocks.BLOCKS.register(modEventBus);
 		WBBlocks.BLOCK_ENTITY_TYPES.register(modEventBus);
 		WBFeatures.FEATURES.register(modEventBus);
 		WBEntities.ENTITIES.register(modEventBus);
-
-		// Register our custom biome source codec so the dimension json can reference it.
-		Registry.register(BuiltInRegistries.BIOME_SOURCE, WBIdentifiers.WB_BIOME_SOURCE_ID, WBBiomeProvider.CODEC);
 
 		IEventBus forgeBus = MinecraftForge.EVENT_BUS;
 		forgeBus.addListener(WBPortalSpawning::BlockRightClickEvent);
@@ -53,9 +51,16 @@ public class WorldBlender {
 				AltarManager.onLevelTick(event.level);
 			}
 		});
-		DistExecutor.safeRunWhenOn(Dist.CLIENT, () -> WorldBlenderClient::subscribeClientEvents);
+		DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WorldBlenderClient.subscribeClientEvents());
 	}
 
 	public void setup(final FMLCommonSetupEvent event) {
+	}
+
+	// Register our custom biome source codec so the dimension json can reference it.
+	private void registerBuiltInRegistries(RegisterEvent event) {
+		if (event.getRegistryKey().equals(Registries.BIOME_SOURCE)) {
+			event.register(Registries.BIOME_SOURCE, WBIdentifiers.WB_BIOME_SOURCE_ID, () -> WBBiomeProvider.CODEC);
+		}
 	}
 }

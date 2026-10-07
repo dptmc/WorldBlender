@@ -28,48 +28,95 @@ mod version 4.0.2).
 
 ## The 1.20.1 Forge port (mod version 5.0.0) — branch `1.20.1-forge`
 
-**Why it is a reimplementation and not a straight translation:** between 1.16.5 and 1.20.1 Mojang
-rewrote worldgen *three times*. Concretely, the following no longer exist and had to be replaced:
+**Why this is a reimplementation, not a translation:** between 1.16.5 and 1.20.1 Mojang rewrote
+worldgen three times. The following no longer exist and had to be replaced:
 
 | 1.16.5 | 1.20.1 |
 |---|---|
-| mutable `Biome` objects | immutable `Biome`, registered as datapack codecs |
-| `ConfiguredFeature` / `ConfiguredStructureFeature` registries | `ConfiguredFeature` + separate `PlacedFeature` + `Structure` / `StructureSet` |
-| `SurfaceBuilder` + `ISurfaceBuilderConfig` | surface rules inside `NoiseGeneratorSettings` |
-| `worldgen.biome` layer classes | mostly unchanged, but the API surface moved |
-| `net.minecraft.util.registry.*` (ObfuscationReflectionHelper-era MCP names) | `net.minecraft.core.Registry`, `ResourceKey`, `Holder` |
-| `AbstractBlock.Properties` | `BlockBehaviour.Properties` |
-| `TileEntity` | `BlockEntity` |
-| `ContainerBlock` | `BaseContainerBlock` |
-| `IInventory` / `ItemStack.getDisplayName` | `Container` / `ItemStack.getHoverName` |
-| Forge `RegistryObject` via `net.minecraftforge.fml.RegistryObject` | `net.minecraftforge.registries.RegistryObject` |
-| `SimpleChannel` in `net.minecraftforge.fml.network` | `net.minecraftforge.network` |
+| mutable `Biome` (`BiomeGenerationSettings` could be mutated) | immutable, datapack-codec `Biome` |
+| `ConfiguredFeature` / `ConfiguredStructureFeature` registries | `ConfiguredFeature` + `PlacedFeature` + `Structure` / `StructureSet` |
+| per-biome `SurfaceBuilder` + `ISurfaceBuilderConfig` | global `surface_rule` in `NoiseGeneratorSettings` |
+| `Layer` / `LazyArea` biome layer system | `BiomeSource` with climate/noise based placement |
+| structures configured per-biome | `Structure#biomes()` `HolderSet<Biome>` + `StructureSet` placement |
+| `net.minecraft.util.registry.*`, MCP names | `net.minecraft.core.Registry`, `ResourceKey`, `Holder` |
+| `AbstractBlock.Properties` / `TileEntity` / `ContainerBlock` / `IInventory` | `BlockBehaviour.Properties` / `BlockEntity` / `BaseContainerBlock` / `Container` |
+| `net.minecraftforge.fml.RegistryObject`, `fml.network` | `net.minecraftforge.registries.RegistryObject`, `net.minecraftforge.network` |
+| Forge `BiomeDictionary`, `Biome#getBiomeCategory()` | removed by Mojang/Forge |
 
 ### Work log
 
 #### Build system ✅
 * Replaced the 1.16.5 `buildscript {}` + `apply plugin:` setup with the modern `plugins {}` block
   (`net.minecraftforge.gradle` `[6.0,6.2)`, `org.spongepowered.mixin` `0.7.+`).
-* Added `settings.gradle` (pluginManagement + foojay toolchain resolver).
-* `gradle.properties`: MC `1.20.1`, Forge `47.3.0`, official mappings `1.20.1`, Java 17.
-* Wrapper bumped `6.8.3 → 8.1.1`.
-* Folded `gradle/processresources.gradle`, `manifest.gradle`, `maven.gradle` into `build.gradle`;
-  **deleted** `gradle/curseforge.gradle` and `gradle/modrinth.gradle` (they pinned MC 1.16.5 and
-  the CurseGradle/Minotaur versions are long dead). Publishing target/credentials kept in
-  `build.gradle`.
-* `mods.toml` rewritten to the `${...}`-expanded 1.20.1 template; `pack.mcmeta` `pack_format` 6 → 15.
-* This branch builds against a real JDK 17 workspace (see §Verification).
+* Added `settings.gradle`; `gradle.properties`: MC `1.20.1`, Forge `47.3.0`, official mappings,
+  Java 17, mod version `5.0.0`.
+* Wrapper bumped `6.8.3 → 8.1.1`; `mods.toml` rewritten to the `${...}`-expanded template;
+  `pack.mcmeta` `pack_format` 6 → 15.
+* Folded the old `gradle/*.gradle` helpers into `build.gradle` and deleted the CurseGradle/Minotaur
+  publish scripts.
 
-#### Source port
-*See the running notes below — this section is appended to as work lands.*
+#### Source port ✅ (with documented gaps)
+* **Registries** — dropped the `WBBiomes` placeholder registration (1.16 numeric-id hack, no longer
+  needed); biomes are pure datapack now. `WBBlocks`/`WBEntities`/`WBFeatures` use the 1.20.1
+  `DeferredRegister` (registries moved to `net.minecraft.core.registries.Registries`).
+* **Biome source** — `WBBiomeProvider` rewritten with `PerlinSimplexNoise` (two noise fields) to
+  pick one of the five biomes; registered through the Forge `RegisterEvent` into
+  `Registries.BIOME_SOURCE`. `MainBiomeLayer` deleted.
+* **Blending** — `TheBlender` collects placed features / carvers / mob spawns from every non-WB biome
+  and stores them in `BlenderData`. Because 1.20.1 biomes are immutable, new mixins feed the data
+  back: `BiomeGenerationSettingsMixin` (features + carvers) and `MobSpawnSettingsMixin` (mobs +
+  spawn costs). Feature ordering (trees first, small plants last) and fire/bamboo filtering use
+  resource-location keywords (`FeatureGrouping`) instead of 1.16.5's JSON-codec introspection.
+* **Structures** — `StructureMixin#biomes` returns the structure's biome set with the five WB biomes
+  added, so every structure accepts WB biomes; the dimension uses all structure sets. The old
+  `ChunkGeneratorBehavior` "all configured variants in one biome" hack is gone (1.20.1 structures are
+  no longer per-biome configured features).
+* **Surfaces** — new `SurfaceBlender` + `WBSurfaceSystem`; a `NoiseBasedChunkGeneratorMixin` cancels
+  vanilla `buildSurface` for the WB biome source and paints the blended bands (nether road, end
+  borders, whole-column replacement, sandstone banding). `BlendedSurfaceBuilder`/`WBSurfaceBuilders`
+  deleted.
+* **Carvers** — `WorldCarverMixin#canReplaceBlock` allows carvers to carve the painted blocks while a
+  WB chunk is generating (flagged from `applyCarvers`). The old `CarverAccessor` block-set hack was
+  removed as `WorldCarver#carvableBlocks` no longer exists.
+* **Portal** — block/entity/behaviour ported to `BlockEntity`, `EntityBlock`, `InteractionResult`,
+  `Container`, `BuiltInRegistries`, `ClientboundBlockEntityDataPacket`; the custom sync packet
+  (`MessageHandler`) was dropped because block-entity update packets already sync the cooldown.
+* **Portal rendering** — `WBPortalBlockEntityRenderer` now simply draws the cube with vanilla's
+  `RenderType.endPortal()`; the 1.16.5 multi-pass custom render type and screen overlay (and their
+  mixins) were removed.
+* **Altar** — placed by `AltarManager` (a static per-level manager ticked from the Forge
+  `TickEvent.LevelTickEvent`), persisted in `WBWorldSavedData` (`SavedData`). The `WBPortalAltar`
+  feature and `ServerWorld` mixin were removed.
+* **Cleanup features** — `AntiFloatingBlocksAndSeparateLiquids` and `ItemClearingFeature` ported to
+  `FeaturePlaceContext`/`Feature<NoneFeatureConfiguration>` and made available as datapack
+  configured+placed features that the blender injects into WB biomes (LOCAL_MODIFICATIONS).
+* **Client** — `WBSkyProperty` → `WBSkyEffects` (`DimensionSpecialEffects`), registered with Forge's
+  `RegisterDimensionSpecialEffectsEvent` instead of an accessor mixin.
+* **Datapack** — dimension, dimension_type, noise settings (now `minecraft:overworld`), biomes and
+  the two placed features rewritten for 1.20.1. The altar structure NBT is unchanged.
 
+#### Verification ✅
+* `.\gradlew.bat build` succeeds with **JDK 17** and produces `world_blender-1.20.1-5.0.0.jar`
+  (mixin refmap generated correctly).
+* A dedicated **Forge 1.20.1-47.3.0 server boots to "Done"** with the mod installed: datapack
+  dimension/biomes parse, all mixins apply.
 
-## Verification
+## Known gaps / TODO (differences from the 1.16.5 mod)
 
-* `.\gradlew.bat build` must succeed with JDK 17.
-  (Exact result of the latest run is recorded at the bottom of this file.)
-
-
-## Known gaps / TODO
-
-*To be filled in as the port progresses.*
+* **Surfaces are curated, not imported per biome.** 1.16.5 stole every biome's surface config. 1.20.1
+  biomes have no surface config at all, so `SurfaceBlender` ships a fixed blend (netherrack, end
+  stone, grass/podzol/sand/mycelium/snow/gravel…) that still honours the surface blacklist.
+* **`#CATEGORY` / `@BiomeDictionary` blanket blacklisting removed** — `Biome#getBiomeCategory()` and
+  Forge's `BiomeDictionary` were removed. Mod-id (`modid*`), resource-location and regex-term
+  blacklisting still work.
+* **EnderDragon spawn is not implemented** (`spawnEnderDragon` config is kept but unused). The old
+  dragon-fight mixins depended on internals that changed heavily.
+* **Structure trimming**: `removeWorldBottomStructures` is implemented for template structures
+  (`StructureTemplateMixin`); `removeStructurePillars` is not (the target method no longer exists).
+* **Rendering polish**: the portal uses the vanilla end-portal render type; the animated custom
+  texture and the screen overlay were dropped, as were the block-face-culling optimisation mixins.
+* **Micro-optimisations dropped**: the `WeightedStateProvider` lock mixin and the lighting-thread
+  crash workaround (the target method no longer exists).
+* World is now a normal overworld-shaped dimension (`minecraft:overworld` noise settings, y −64…320)
+  instead of the old custom 0…256 noise settings, because the old router could not be reused
+  unchanged.

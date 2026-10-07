@@ -29,18 +29,17 @@ The mod is **client + server** required.
 | Concept | Where | What it does |
 |---|---|---|
 | **The Blender** | `theblender/TheBlender.java` | Collects worldgen data from all biomes and applies it to the mod's own biomes. The heart of the mod. |
-| **Config blacklisting** | `theblender/ConfigBlacklisting.java` | Regex/mod-id/resource-location/`#category`/`@biomeDictionary` matching used to exclude things from being blended. |
-| **Feature grouping** | `theblender/FeatureGrouping.java` | Detects "small plants", "large plants (trees)", bamboo, fire/lava/basalt features so they can be ordered/removed sensibly. Uses JSON codec round-trips + a cache. |
+| **Config blacklisting** | `theblender/ConfigBlacklisting.java` | Regex/mod-id/resource-location matching used to exclude things from being blended. |
+| **Feature grouping** | `theblender/FeatureGrouping.java` | Detects "small plants", "large plants (trees)", bamboo, fire/lava/basalt features by resource-location keywords so they can be ordered/removed sensibly. |
+| **Blender data** | `theblender/BlenderData.java` | Static holder that stores the blended features/carvers/spawns keyed by the WB biomes' settings instances, plus the extended biome sets for structures. |
 | **Identifier dump** | `theblender/IdentifierPrinting.java` | Optional `config/world_blender-identifier_dump.txt` listing every biome/feature/structure/carver/entity/block id, to make blacklisting easy. |
-| **Biome source** | `dimension/WBBiomeProvider.java`, `dimension/MainBiomeLayer.java` | Custom biome source placing the 5 WB biomes with two perlin noise fields (one for the land/plateau layout, one for cold hills). |
-| **Surface blender** | `surfacebuilder/*` | Picks one contributing surface material per x/z based on perlin bands and paints it, including the signature nether "road" with end-stone borders and whole-column replacement for nether/end/modded surfaces. |
-| **Portal** | `blocks/*` | `world_blender_portal` block + block entity (cooldown, non-removable flag, face-culling optimisation). Right-click a full 2×2×2 of chests while crouching with the activation item to build it. |
+| **Biome source** | `dimension/WBBiomeProvider.java` | Custom biome source placing the 5 WB biomes with two `PerlinSimplexNoise` fields (one for the land/plateau layout, one for cold hills). |
+| **Surface blender** | `surfacebuilder/SurfaceBlender.java`, `surfacebuilder/WBSurfaceSystem.java` | Picks one surface material per x/z based on perlin bands and paints it, including the signature nether "road" with end-stone borders and whole-column replacement for nether/end materials. |
+| **Portal** | `blocks/*` | `world_blender_portal` block + block entity (cooldown, non-removable flag). Right-click a full 2×2×2 of chests while crouching with the activation item to build it. |
 | **Portal spawning logic** | `blocks/WBPortalSpawning.java` | Validates the chest cube, counts unique block items, consumes/drops the chests. |
-| **Portal altar** | `features/WBPortalAltar.java` | Places the unbreakable escape portal at world origin (structure NBT `portal_altar.nbt`). |
+| **Portal altar** | `dimension/AltarManager.java` | Places the unbreakable escape portal at world origin (structure NBT `portal_altar.nbt`) and remembers it in `WBWorldSavedData`. |
 | **Anti floating blocks / liquid separation** | `features/AntiFloatingBlocksAndSeparateLiquids.java` | Post-gen pass: props up falling blocks with terracotta, walls in floating fluids, and separates lava/water with obsidian. |
 | **Item clearing** | `features/ItemClearingFeature.java` + `entities/ItemClearingEntity.java` | Invisible ticking entity that force-ticks a chunk so broken plants/blocks self-destruct, then deletes stray item entities (kills item spam from broken worldgen). |
-| **Ender dragon fight** | `dimension/EnderDragonFightModification.java` + mixins | Optionally spawns/respawns the dragon at world origin, and stops vanilla dragon code from loading a ton of chunks on entry. |
-| **Altar manager** | `dimension/AltarManager.java` | Per-`ServerLevel` state that remembers whether the altar/dragon have been placed. |
 | **Configs** | `configs/*` | 3 Forge config files: blending, dimension, portal. |
 
 ---
@@ -71,19 +70,23 @@ WB biomes read the blended data (see §4) → the dimension generates
 ## 4. 1.20.1 implementation notes (current target)
 
 Minecraft 1.16.5 (the original target) had mutable biomes and `SurfaceBuilder`s. Both are gone in
-1.20.1, so parts of this project are **reimplementations rather than translations**:
+1.20.1, so parts of this project are **reimplementations rather than translations**. The trick that
+makes the mod work is that **1.20.1 biomes are immutable**, so instead of mutating them the mod's own
+biomes report blended content through mixins.
 
-* **Biomes are immutable.** Instead of mutating biome objects, the mod's own biomes report the
-  blended generation settings / mob spawns through a mixin on `Biome`
-  (`mixin/worldgen/BiomeMixin`). The blended data is built once at server start.
-* **Structure "configured features" do not exist.** Structures now live in `StructureSet`s that are
-  per-biome `HolderSet<StructureSet>`. The old "spawn every configured variant" hack
-  (`ChunkGeneratorBehavior`) is replaced by simply blending the full `HolderSet`s.
-* **`SurfaceBuilder` is gone.** The blended surface is applied by the mod's own
-  `WBChunkGenerator` (extends `NoiseBasedChunkGenerator`), which overrides `buildSurface` and paints
-  the blended surface bands instead of using vanilla `SurfaceRules`.
-* **Carver accessors / feature ordering** are ported with modern mixin accessors where the old
-  Forge/MCP access-widener paths no longer apply.
+* **The Blender** (`theblender/TheBlender.java`) collects `PlacedFeature` holders, configured carvers
+  and mob spawns from every non-WB biome and stores them in `theblender/BlenderData.java`.
+* **Biomes are immutable.** `mixin/worldgen/BiomeGenerationSettingsMixin` returns the blended
+  features/carvers and `MobSpawnSettingsMixin` returns the blended mobs whenever the game asks a WB
+  biome's settings for them. The blobs are keyed by the WB biome's settings instance (identity map).
+* **Structures accept WB biomes** via `mixin/worldgen/StructureMixin#biomes` — the structure's
+  `HolderSet<Biome>` is extended with the five WB biomes. The dimension uses all structure sets.
+* **SurfaceBuilder is gone.** `surfacebuilder/WBSurfaceSystem` paints the blended surface bands; a
+  `mixin/worldgen/NoiseBasedChunkGeneratorMixin` cancels vanilla `buildSurface` for the WB biome
+  source and also flags carving so `WorldCarverMixin` can let carvers cut through the painted blocks.
+* **Biome source** uses `PerlinSimplexNoise` (two fields) instead of the removed `Layer`/`LazyArea`
+  biome layer system.
+* **Altar** placement is driven by `dimension/AltarManager` ticked from the Forge tick event.
 
 Anything that could not be reproduced 1:1 is listed under "Known gaps" in `HISTORY.md`.
 
@@ -115,18 +118,16 @@ src/main/java/com/telepathicgrunt/worldblender/
     WorldBlenderClient.java      client-only event subscriptions
     WBIdentifiers.java           all resource locations / registry keys
     blocks/                      portal block, block entity, renderer, spawning logic
-    biomes/                      WB biome placeholders (real data is in datapack json)
     configs/                     the 3 ForgeConfigSpecs
-    dimension/                   biome source, altar, dragon fight, chunk generator behaviour
+    dimension/                   biome source, altar manager, sky effects, saved data
     entities/                    item-clearing entity
-    features/                    portal altar, anti-floating-blocks, item clearing
+    features/                    anti-floating-blocks, item clearing (datapack-configured)
     mixin/                       all mixins (see world_blender.mixins.json)
     surfacebuilder/              blended surface logic
-    theblender/                  the blender, blacklisting, feature grouping, id dump
-    utils/                       network handler, codec cache, noise, seed holder
+    theblender/                  the blender, blender data, blacklisting, feature grouping, id dump
 src/main/resources/
     META-INF/mods.toml           mod metadata
-    data/world_blender/          dimension, dimension_type, noise_settings, biomes, structures
+    data/world_blender/          dimension, dimension_type, biomes, configured/placed features, structures
     assets/world_blender/        blockstate, model, lang
     world_blender.mixins.json    mixin config
 ```
@@ -139,8 +140,10 @@ src/main/resources/
   and the maven artifact reference them.
 * Registries use `DeferredRegister`; nothing is registered in a static initialiser that touches
   worldgen.
-* The mod's own biomes are **dummies registered by code** whose ids are then **overwritten by
-  datapack json** — do not remove the `WBBiomes` registration or the numeric ids shift.
+* The five World Blender biomes are **defined entirely in datapack json**
+  (`data/world_blender/worldgen/biome/`); there is no code-side biome registration any more.
+* Blended content is applied by **mixins** into those biomes' settings (see §4), *not* by mutating
+  biomes — 1.20.1 biomes are immutable and shared by reference.
 * Configs are `COMMON` type and require a full game restart for blending changes to apply.
 * Never blacklist the mod's own `portal_altar` feature: it is the only guaranteed escape.
 * `anti_floating_blocks_and_separate_liquids` / `item_clearing` are intentionally added **last** so
