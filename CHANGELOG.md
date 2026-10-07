@@ -11,6 +11,12 @@ into World Blender's five biomes. Structures are made to accept World Blender's 
 spawn in the dimension. Surfaces are now a curated blend (nether road + end borders + grass, podzol,
 sand, mycelium, snow, gravel…).
 
+##### Performance:
+The dimension ships its own noise settings with aquifers and ore veins off, the surface pass and the
+anti-floating-blocks pass no longer scan the whole world height, whole-column surfaces use fast
+section-local replacement, and disabled/blacklisted structures no longer spawn. See
+`PERFORMANCE.md` for the full list and the tuning options.
+
 ##### Config:
 The `#CATEGORY` and `@BiomeDictionary` blanket-blacklist entries were removed (Minecraft/Forge
 dropped biome categories and the biome dictionary). Resource-location, mod-id (`modid*`) and regex

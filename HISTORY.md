@@ -100,6 +100,26 @@ worldgen three times. The following no longer exist and had to be replaced:
   (mixin refmap generated correctly).
 * A dedicated **Forge 1.20.1-47.3.0 server boots to "Done"** with the mod installed: datapack
   dimension/biomes parse, all mixins apply.
+* Force-loading the WB dimension generated region files with no exceptions and the server stayed
+  responsive.
+
+#### Performance pass ✅
+* `world_blender:world_blender` noise settings with `aquifers_enabled=false` and
+  `ore_veins_enabled=false`.
+* `WBSurfaceSystem`: band surfaces stop scanning after the band; whole-column surfaces replace
+  section-by-section and skip empty sections (was a full 384-block `setBlockState` walk per column).
+* `AntiFloatingBlocksAndSeparateLiquids`: skips sections with no replaceable block/fluid/falling
+  block.
+* `StructureMixin`: disabled/blacklisted structures don't spawn in WB and the decision is memoised.
+* Documentation in `PERFORMANCE.md`.
+
+#### Client-hang hardening ✅
+* `ItemClearingEntity` was casting to `ServerLevel` unconditionally (throws every tick on the
+  client) and scanned the whole column; now strictly server-side and section-aware.
+* `AltarManager` retried a full structure paste every tick forever if generation failed; now backs
+  off and gives up.
+* `WBSurfaceSystem` noise is per-thread (was a data race between chunk-gen workers).
+* `WBSkyEffects` cloud height `NaN` → `192.0F`.
 
 ## Known gaps / TODO (differences from the 1.16.5 mod)
 
