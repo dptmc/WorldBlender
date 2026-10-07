@@ -1,20 +1,18 @@
 package com.telepathicgrunt.worldblender.mixin.dimensions;
 
 import com.mojang.authlib.GameProfileRepository;
-import com.mojang.authlib.minecraft.MinecraftSessionService;
 import com.mojang.datafixers.DataFixer;
 import com.telepathicgrunt.worldblender.configs.WBBlendingConfigs;
 import com.telepathicgrunt.worldblender.theblender.IdentifierPrinting;
 import com.telepathicgrunt.worldblender.theblender.TheBlender;
-import net.minecraft.resources.DataPackRegistries;
-import net.minecraft.resources.ResourcePackList;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.management.PlayerProfileCache;
-import net.minecraft.util.registry.DynamicRegistries;
-import net.minecraft.util.registry.Registry;
-import net.minecraft.world.chunk.listener.IChunkStatusListenerFactory;
-import net.minecraft.world.storage.IServerConfiguration;
-import net.minecraft.world.storage.SaveFormat;
+import net.minecraft.server.Services;
+import net.minecraft.server.WorldStem;
+import net.minecraft.server.level.progress.ChunkProgressListenerFactory;
+import net.minecraft.server.packs.repository.PackRepository;
+import net.minecraft.world.level.storage.LevelStorageSource;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -22,30 +20,28 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.net.Proxy;
 
-
-@Mixin(value = MinecraftServer.class, priority = Integer.MAX_VALUE)
+/**
+ * Blends all biomes into World Blender's own biomes right after the server (and therefore the datapack
+ * registries) is constructed but before any level is created/generated. This ordering matters because the
+ * level's structure state is computed from the biomes during level creation.
+ */
+@Mixin(MinecraftServer.class)
 public class MinecraftServerMixin {
 
-    @Inject(
-            method = "<init>(Ljava/lang/Thread;Lnet/minecraft/util/registry/DynamicRegistries$Impl;Lnet/minecraft/world/storage/SaveFormat$LevelSave;Lnet/minecraft/world/storage/IServerConfiguration;Lnet/minecraft/resources/ResourcePackList;Ljava/net/Proxy;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/resources/DataPackRegistries;Lcom/mojang/authlib/minecraft/MinecraftSessionService;Lcom/mojang/authlib/GameProfileRepository;Lnet/minecraft/server/management/PlayerProfileCache;Lnet/minecraft/world/chunk/listener/IChunkStatusListenerFactory;)V",
-            at = @At(value = "TAIL")
-    )
-    private void modifyBiomeRegistry(Thread thread, DynamicRegistries.Impl impl, SaveFormat.LevelSave session,
-                                     IServerConfiguration saveProperties, ResourcePackList resourcePackManager,
-                                     Proxy proxy, DataFixer dataFixer, DataPackRegistries serverResourceManager,
-                                     MinecraftSessionService minecraftSessionService, GameProfileRepository gameProfileRepository,
-                                     PlayerProfileCache userCache, IChunkStatusListenerFactory worldGenerationProgressListenerFactory,
-                                     CallbackInfo ci)
-    {
-        if(WBBlendingConfigs.resourceLocationDump.get()){
-            IdentifierPrinting.printAllResourceLocations(impl);
-        }
+	@Inject(method = "<init>", at = @At(value = "TAIL"))
+	private void wb_blendTheWorld(Thread thread, LevelStorageSource.LevelStorageAccess levelStorageAccess,
+								  PackRepository packRepository, WorldStem worldStem, Proxy proxy,
+								  DataFixer dataFixer, Services services,
+								  ChunkProgressListenerFactory progressListenerFactory, CallbackInfo ci)
+	{
+		MinecraftServer server = (MinecraftServer) (Object) this;
+		RegistryAccess registryAccess = server.registryAccess();
 
-        if(impl.func_230521_a_(Registry.BIOME_KEY).isPresent()) {
-            TheBlender.blendTheWorld(impl);
-        }
-
-        // Reset for every world.
-        TheBlender.STRUCTURE_CONFIGS.clear();
-    }
+		if (registryAccess.registry(Registries.BIOME).isPresent()) {
+			if (WBBlendingConfigs.resourceLocationDump.get()) {
+				IdentifierPrinting.printAllResourceLocations(registryAccess);
+			}
+			TheBlender.blendTheWorld(registryAccess);
+		}
+	}
 }

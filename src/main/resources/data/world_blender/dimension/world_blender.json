@@ -1,12 +1,19 @@
 {
   "type": "world_blender:world_blender",
   "generator": {
-    "biome_source": {
-      "biome_size": 3,
-      "type": "world_blender:biome_source"
-    },
     "type": "minecraft:noise",
-    "settings": "world_blender:world_blender_settings",
-    "seed": 0
+    "settings": "minecraft:overworld",
+    "biome_source": {
+      "type": "world_blender:biome_source",
+      "seed": 0,
+      "biome_size": 3,
+      "biomes": [
+        "world_blender:general_blended",
+        "world_blender:mountainous_blended",
+        "world_blender:cold_hills_blended",
+        "world_blender:ocean_blended",
+        "world_blender:frozen_ocean_blended"
+      ]
+    }
   }
 }

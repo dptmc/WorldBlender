@@ -1,49 +1,39 @@
 package com.telepathicgrunt.worldblender.theblender;
 
 import com.telepathicgrunt.worldblender.WorldBlender;
-import net.minecraft.util.RegistryKey;
-import net.minecraft.util.ResourceLocation;
-import net.minecraft.util.registry.DynamicRegistries;
-import net.minecraft.util.registry.Registry;
+import net.minecraft.core.Registry;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.fml.loading.FMLPaths;
 
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class IdentifierPrinting
 {
-
 	/**
-	 * Prints out all the resource location that the blacklists for World Blender config uses.
+	 * Prints out all the resource locations that the World Blender blacklists use.
 	 * Will create 6 sections: Biomes, Features, Structures, Carvers, Entities, and Blocks.
-	 * 
-	 * The resource location will be printed into a file call identifierDump.txt
-	 * and can be found below the world's save folder in the Minecraft folder.
 	 */
-	public static void printAllResourceLocations(DynamicRegistries registryManager)
+	public static void printAllResourceLocations(RegistryAccess registryAccess)
 	{
-
 		try(PrintStream printStream = new PrintStream(Paths.get(FMLPaths.CONFIGDIR.get().toString(), "world_blender-identifier_dump.txt").toString()))
-		{ 
-			printOutSection(printStream, registryManager.getRegistry(Registry.BIOME_KEY), "BIOMES");
-
+		{
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.BIOME), "BIOMES");
 			printStream.println();
-			printOutSection(printStream, registryManager.getRegistry(Registry.CONFIGURED_FEATURE_KEY), "CONFIGURED FEATURES");
-			
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.PLACED_FEATURE), "PLACED FEATURES");
 			printStream.println();
-			printOutSection(printStream, registryManager.getRegistry(Registry.CONFIGURED_STRUCTURE_FEATURE_KEY), "CONFIGURED STRUCTURES");
-
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.CONFIGURED_FEATURE), "CONFIGURED FEATURES");
 			printStream.println();
-			printOutSection(printStream, registryManager.getRegistry(Registry.CONFIGURED_CARVER_KEY), "CARVERS");
-			
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.STRUCTURE), "STRUCTURES");
 			printStream.println();
-			printOutSection(printStream, Registry.ENTITY_TYPE, "ENTITIES");
-			
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.CONFIGURED_CARVER), "CARVERS");
 			printStream.println();
-			printOutSection(printStream, Registry.BLOCK, "BLOCKS");
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.ENTITY_TYPE), "ENTITIES");
+			printStream.println();
+			printOutSection(printStream, registryAccess.registryOrThrow(Registries.BLOCK), "BLOCKS");
 
 			WorldBlender.LOGGER.warn("Created identifier file at config/world_blender-identifier_dump.txt");
 		}
@@ -51,55 +41,22 @@ public class IdentifierPrinting
 		{
 			WorldBlender.LOGGER.warn("FAILED TO CREATE AND WRITE TO config/world_blender-identifier_dump.txt. SEE LATEST.LOG AND SHOW IT TO WORLD BLENDER DEV.");
 			e.printStackTrace();
-		} 
+		}
 	}
 
-
-	/**
-	 * Will go through that registry passed in and print out all the resource locations of every entry inside of it.
-	 *
-	 * @param printStream - the place we are printing the resource locations to
-	 * @param registry - the registry to go through and get all entries
-	 * @param section - name of this section. Will be put into the header and printed into the printStream
-	 */
 	private static <T> void printOutSection(PrintStream printStream, Registry<T> registry, String section)
 	{
-		AtomicReference<String> previous_namespace = new AtomicReference<>("minecraft");
-		
-		//title of the section
-		printStream.println("######################################################################"); 
-		printStream.println("######      "+section+" RESOURCE LOCATION (IDs)        ######"); 
+		printStream.println("######################################################################");
+		printStream.println("######      " + section + " RESOURCE LOCATIONS (IDs)        ######");
 		printStream.println();
 
-		registry.getEntries().stream().sorted(Comparator.comparing(p -> p.getKey().getLocation().toString()))
-				.forEach(entry -> writeEntry(printStream, entry.getKey(), previous_namespace));
-	}
-
-	private static void writeEntry(PrintStream printStream, RegistryKey<?> entry, AtomicReference<String> previous_namespace){
-		ResourceLocation entryID = entry.getLocation();
-
-		// extra check to just make sure. Probably never possible to be null
-		if(entryID == null) return;
-
-		//prints a space between different Mod IDs
-		previous_namespace.set(printSpacingBetweenMods(printStream, previous_namespace.get(), entryID.getNamespace()));
-
-		//prints the actual entry's resource location
-		printStream.println(entryID.toString());
-
-	}
-	
-	/**
-	 * helper method to print spacing between different mod's resource location section
-	 */
-	private static String printSpacingBetweenMods(PrintStream printStream, String previousModID, String currentModID) 
-	{
-		if(!currentModID.isEmpty() && !previousModID.equals(currentModID))
-		{
-			printStream.println();
-			return currentModID;
+		String previousNamespace = "minecraft";
+		for (ResourceLocation id : registry.keySet().stream().sorted().toList()) {
+			if (!id.getNamespace().isEmpty() && !previousNamespace.equals(id.getNamespace())) {
+				printStream.println();
+				previousNamespace = id.getNamespace();
+			}
+			printStream.println(id);
 		}
-		
-		return previousModID;
 	}
 }

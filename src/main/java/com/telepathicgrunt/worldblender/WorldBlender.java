@@ -1,23 +1,19 @@
 package com.telepathicgrunt.worldblender;
 
-import com.telepathicgrunt.worldblender.biomes.WBBiomes;
 import com.telepathicgrunt.worldblender.blocks.WBBlocks;
 import com.telepathicgrunt.worldblender.blocks.WBPortalSpawning;
 import com.telepathicgrunt.worldblender.configs.WBBlendingConfigs;
 import com.telepathicgrunt.worldblender.configs.WBDimensionConfigs;
 import com.telepathicgrunt.worldblender.configs.WBPortalConfigs;
+import com.telepathicgrunt.worldblender.dimension.AltarManager;
 import com.telepathicgrunt.worldblender.dimension.WBBiomeProvider;
 import com.telepathicgrunt.worldblender.entities.WBEntities;
-import com.telepathicgrunt.worldblender.features.WBConfiguredFeatures;
 import com.telepathicgrunt.worldblender.features.WBFeatures;
-import com.telepathicgrunt.worldblender.surfacebuilder.WBSurfaceBuilders;
-import com.telepathicgrunt.worldblender.theblender.TheBlender;
-import com.telepathicgrunt.worldblender.utils.MessageHandler;
-import net.minecraft.util.ResourceLocation;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.world.WorldEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -25,17 +21,13 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
-import net.minecraftforge.registries.IForgeRegistry;
-import net.minecraftforge.registries.IForgeRegistryEntry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 @Mod(WorldBlender.MODID)
-public class WorldBlender{
+public class WorldBlender {
 	public static final String MODID = "world_blender";
 	public static final Logger LOGGER = LogManager.getLogger(MODID);
-
-	private static boolean chestListGenerated = false;
 
 	public WorldBlender() {
 
@@ -45,50 +37,25 @@ public class WorldBlender{
 		ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, WBPortalConfigs.GENERAL_SPEC, "world_blender-portal.toml");
 
 		IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
-
 		modEventBus.addListener(this::setup);
 		WBBlocks.BLOCKS.register(modEventBus);
-		WBBiomes.BIOMES.register(modEventBus);
+		WBBlocks.BLOCK_ENTITY_TYPES.register(modEventBus);
 		WBFeatures.FEATURES.register(modEventBus);
 		WBEntities.ENTITIES.register(modEventBus);
-		WBBlocks.TILE_ENTITY_TYPES.register(modEventBus);
-		WBSurfaceBuilders.SURFACE_BUILDERS.register(modEventBus);
+
+		// Register our custom biome source codec so the dimension json can reference it.
+		Registry.register(BuiltInRegistries.BIOME_SOURCE, WBIdentifiers.WB_BIOME_SOURCE_ID, WBBiomeProvider.CODEC);
 
 		IEventBus forgeBus = MinecraftForge.EVENT_BUS;
-		forgeBus.addListener(EventPriority.NORMAL, this::setupChestList);
-		forgeBus.addListener(EventPriority.LOWEST, TheBlender::addDimensionalSpacing);
-		forgeBus.addListener(EventPriority.NORMAL, WBPortalSpawning::BlockRightClickEvent);
+		forgeBus.addListener(WBPortalSpawning::BlockRightClickEvent);
+		forgeBus.addListener((TickEvent.LevelTickEvent event) -> {
+			if (event.phase == TickEvent.Phase.END) {
+				AltarManager.onLevelTick(event.level);
+			}
+		});
 		DistExecutor.safeRunWhenOn(Dist.CLIENT, () -> WorldBlenderClient::subscribeClientEvents);
 	}
 
-	public void setup(final FMLCommonSetupEvent event)
-	{
-		event.enqueueWork(() ->
-		{
-			WBConfiguredFeatures.registerConfiguredFeatures();
-			WBBiomeProvider.registerBiomeProvider();
-		});
-		MessageHandler.init();
-	}
-
-	public void setupChestList(final WorldEvent.Load event)
-	{
-		// Do it at any world startup so tile-entities using tags like Vampirism does not crash.
-		// We do not need to re-make like when entering other worlds as blocks/tile-entities are
-		// not dynamic registries like worldgen registries are.
-		if(!chestListGenerated){
-			WBPortalSpawning.generateRequiredBlockList(event.getWorld(), WBPortalConfigs.requiredBlocksInChests.get());
-			chestListGenerated = true;
-		}
-	}
-
-	/*
-	 * Helper method to quickly register features, blocks, items, structures, biomes, anything that can be registered.
-	 */
-	public static <T extends IForgeRegistryEntry<T>> T register(IForgeRegistry<T> registry, T entry, String registryKey)
-	{
-		entry.setRegistryName(new ResourceLocation(MODID, registryKey));
-		registry.register(entry);
-		return entry;
+	public void setup(final FMLCommonSetupEvent event) {
 	}
 }

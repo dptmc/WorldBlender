@@ -1,56 +1,41 @@
 package com.telepathicgrunt.worldblender.entities;
 
-import com.telepathicgrunt.worldblender.mixin.blocks.AbstractRailBlockInvoker;
-import net.minecraft.block.AbstractRailBlock;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.FlowingFluidBlock;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityType;
-import net.minecraft.nbt.CompoundNBT;
-import net.minecraft.network.IPacket;
-import net.minecraft.network.play.server.SSpawnObjectPacket;
-import net.minecraft.state.properties.RailShape;
-import net.minecraft.util.ClassInheritanceMultiMap;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.server.ServerWorld;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.server.level.ServerLevel;
 
 public class ItemClearingEntity extends Entity {
    private int ticksTillDetonation;
    private final int tickCountdownStart = 50;
 
-   public ItemClearingEntity(World worldIn) {
-      this(WBEntities.ITEM_CLEARING_ENTITY.get(), worldIn);
-   }
-
-   public ItemClearingEntity(EntityType<? extends ItemClearingEntity> type, World worldIn) {
+   public ItemClearingEntity(EntityType<? extends ItemClearingEntity> type, Level worldIn) {
       super(type, worldIn);
       ticksTillDetonation = tickCountdownStart;
    }
 
    @Override
-   @SuppressWarnings("unchecked")
-   public EntityType<? extends ItemClearingEntity> getType() {
-      return (EntityType<? extends ItemClearingEntity>) super.getType();
+   protected void defineSynchedData() {}
+
+   @Override
+   public Packet<ClientGamePacketListener> getAddEntityPacket() {
+      return new ClientboundAddEntityPacket(this);
    }
 
    @Override
-   protected void registerData() {}
-
-   @Override
-   public IPacket<?> createSpawnPacket() {
-      return new SSpawnObjectPacket(this);
-   }
-
-   @Override
-   public void writeAdditional(CompoundNBT compound) {
+   protected void addAdditionalSaveData(CompoundTag compound) {
       compound.putInt("ticksTillDetonation", this.ticksTillDetonation);
    }
 
    @Override
-   public void readAdditional(CompoundNBT compound) {
+   protected void readAdditionalSaveData(CompoundTag compound) {
       this.ticksTillDetonation = compound.getInt("ticksTillDetonation");
       if(this.ticksTillDetonation == 0) this.ticksTillDetonation = tickCountdownStart;
    }
@@ -60,39 +45,29 @@ public class ItemClearingEntity extends Entity {
       if(ticksTillDetonation > 0){
          // Force blocks to update themselves and tick so they break
          if(ticksTillDetonation == tickCountdownStart - 2){
-            BlockPos.Mutable mutable = new BlockPos.Mutable();
-            Chunk chunk = this.world.getChunk(this.chunkCoordX, this.chunkCoordZ);
-            BlockPos chunkBlockPos = chunk.getPos().asBlockPos();
+            BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
+            LevelChunk chunk = this.level().getChunk(this.chunkPosition().x, this.chunkPosition().z);
+            int chunkOriginX = chunk.getPos().getMinBlockX();
+            int chunkOriginZ = chunk.getPos().getMinBlockZ();
 
             for(int x = 0; x < 16; x++){
                for(int z = 0; z < 16; z++){
-                  for(int y = 0; y < this.world.getHeight(); y++){
-                     BlockState currentState = chunk.getBlockState(mutable.setAndOffset(chunkBlockPos, x, y, z));
-
-                     // Special case as rails return themselves from getValidBlockForPosition when they shouldn't. Rails bad
-                     if(currentState.getBlock() instanceof AbstractRailBlock){
-                        RailShape railShape = ((AbstractRailBlock)currentState.getBlock()).getRailDirection(currentState, this.world, mutable, null);
-                        boolean invalidSpot = AbstractRailBlockInvoker.wb_callIsValidRailDirection(mutable, this.world, railShape);
-                        if(invalidSpot){
-                           this.world.removeBlock(mutable, false);
-                        }
-                        continue;
-                     }
+                  for(int y = this.level().getMinBuildHeight(); y < this.level().getMaxBuildHeight(); y++){
+                     mutable.set(chunkOriginX + x, y, chunkOriginZ + z);
+                     BlockState currentState = chunk.getBlockState(mutable);
 
                      // Skip air, full solid cubes, and liquid blocks as those typically do not break themselves.
                      if(!currentState.isAir() &&
-                       !(currentState.getBlock() instanceof FlowingFluidBlock) &&
-                       !(currentState.getMaterial().isOpaque() && currentState.isOpaqueCube(this.world, mutable)))
+                       currentState.getFluidState().isEmpty() &&
+                       !currentState.isSolidRender(this.level(), mutable))
                      {
-                        BlockState newState = Block.getValidBlockForPosition(currentState, this.world, mutable);
-                        if(currentState != newState){
+                        if(!currentState.canSurvive(this.level(), mutable)){
                            // removes all invalid placed blocks like floating grass or rails
-                           this.world.setBlockState(mutable, newState, 3);
+                           this.level().removeBlock(mutable, false);
                         }
                         else{
                            // forces blocks like leaves or twisting vines to self-destruct
-                           currentState.tick((ServerWorld) this.world, mutable, this.rand);
-                           currentState.randomTick((ServerWorld) this.world, mutable, this.rand);
+                           currentState.tick((ServerLevel) this.level(), mutable, this.level().random);
                         }
                      }
                   }
@@ -106,19 +81,17 @@ public class ItemClearingEntity extends Entity {
 
       // NUKE ALL THE ITEMS NOW
       else{
-         Chunk chunk = this.world.getChunk(this.chunkCoordX, this.chunkCoordZ);
-         ClassInheritanceMultiMap<Entity>[] entityList = chunk.getEntityLists();
+         LevelChunk chunk = this.level().getChunk(this.chunkPosition().x, this.chunkPosition().z);
+         net.minecraft.world.phys.AABB chunkBox = new net.minecraft.world.phys.AABB(
+                 chunk.getPos().getMinBlockX(), this.level().getMinBuildHeight(), chunk.getPos().getMinBlockZ(),
+                 chunk.getPos().getMaxBlockX() + 1, this.level().getMaxBuildHeight(), chunk.getPos().getMaxBlockZ() + 1);
 
          // Clear the chunk of all ItemEntities
-         for (ClassInheritanceMultiMap<Entity> entities : entityList) {
-            entities.forEach(entity -> {
-               if (entity.getType().equals(EntityType.ITEM)) {
-                  entity.remove(); // Will be removed automatically on next world tick
-               }
-            });
+         for (net.minecraft.world.entity.item.ItemEntity itemEntity : this.level().getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, chunkBox)) {
+            itemEntity.discard(); // Will be removed automatically on next world tick
          }
 
-         this.remove(); // remove self as task is done
+         this.discard(); // remove self as task is done
       }
    }
 }

@@ -1,44 +1,43 @@
 package com.telepathicgrunt.worldblender.dimension;
 
 import com.telepathicgrunt.worldblender.WorldBlender;
-import net.minecraft.nbt.CompoundNBT;
-import net.minecraft.world.World;
-import net.minecraft.world.server.ServerWorld;
-import net.minecraft.world.storage.DimensionSavedDataManager;
-import net.minecraft.world.storage.WorldSavedData;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.saveddata.SavedData;
 
 
-public class WBWorldSavedData extends WorldSavedData {
+public class WBWorldSavedData extends SavedData {
     private static final String ALTAR_DATA = WorldBlender.MODID + "AltarMade";
-    private static final WBWorldSavedData CLIENT_DUMMY = new WBWorldSavedData();
     private boolean wbAltarMade;
 
-    public WBWorldSavedData() {
-        super(ALTAR_DATA);
+    public WBWorldSavedData() {}
+
+    public WBWorldSavedData(boolean altarMade) {
+        this.wbAltarMade = altarMade;
     }
 
-    public static WBWorldSavedData get(World world) {
-        if (!(world instanceof ServerWorld)) {
-            return CLIENT_DUMMY;
+    public static WBWorldSavedData get(Level world) {
+        if (!(world instanceof ServerLevel serverLevel)) {
+            return new WBWorldSavedData();
         }
 
-        DimensionSavedDataManager storage = ((ServerWorld) world).getSavedData();
-        return storage.getOrCreate(WBWorldSavedData::new, ALTAR_DATA);
+        return serverLevel.getDataStorage().computeIfAbsent(WBWorldSavedData::load, WBWorldSavedData::new, ALTAR_DATA);
+    }
+
+    public static WBWorldSavedData load(CompoundTag data) {
+        return new WBWorldSavedData(data.getBoolean("WBAltarMade"));
     }
 
     @Override
-    public void read(CompoundNBT data) {
-        wbAltarMade = data.getBoolean("WBAltarMade");
-    }
-
-    @Override
-    public CompoundNBT write(CompoundNBT data) {
+    public CompoundTag save(CompoundTag data) {
         data.putBoolean("WBAltarMade", wbAltarMade);
         return data;
     }
 
     public void setWBAltarState(boolean state) {
         this.wbAltarMade = state;
+        this.setDirty();
     }
 
     public boolean getWBAltarState() {

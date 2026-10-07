@@ -1,15 +1,12 @@
 package com.telepathicgrunt.worldblender.mixin.worldgen;
 
-import net.minecraft.world.biome.provider.BiomeProvider;
-import net.minecraft.world.gen.ChunkGenerator;
+import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 @Mixin(ChunkGenerator.class)
 public interface ChunkGeneratorAccessor {
-    @Accessor("biomeProvider")
-    BiomeProvider wb_getBiomeSource();
-
-    @Accessor("field_235949_c_")
-    BiomeProvider wb_getPopulationSource();
+    @Accessor("biomeSource")
+    BiomeSource wb_getBiomeSource();
 }
